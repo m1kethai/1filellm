@@ -4,6 +4,7 @@ processed_urls.txt
 
 # Env
 .env
+*venv
 
 # Editors
 .project
@@ -11,6 +12,7 @@ processed_urls.txt
 .springBeans
 **/.favorites.json
 **/.idea
+*.code-workspace
 **/.vscode
 **/*.Session.vim
 **/*.sw[a-z]
@@ -91,4 +93,3 @@ local_settings.py
 pip-delete-this-directory.txt
 pip-log.txt
 pip-wheel-metadata/
-venv

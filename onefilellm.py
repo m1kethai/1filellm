@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup, Comment
 from urllib.parse import urljoin, urlparse
 from PyPDF2 import PdfReader
+from dotenv import load_dotenv
 import os
 import sys
 import tiktoken

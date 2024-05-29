@@ -28,9 +28,11 @@ from rich.syntax import Syntax
 from rich.traceback import install
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 
-def safe_file_read(filepath, fallback_encoding='latin1'):
+console = Console()
+
+def safe_file_read(filepath, fallback_encoding="latin1"):
     try:
-        with open(filepath, "r", encoding='utf-8') as file:
+        with open(filepath, "r", encoding="utf-8") as file:
             return file.read()
     except UnicodeDecodeError:
         with open(filepath, "r", encoding=fallback_encoding) as file:
@@ -39,79 +41,152 @@ def safe_file_read(filepath, fallback_encoding='latin1'):
 nltk.download("stopwords", quiet=True)
 stop_words = set(stopwords.words("english"))
 
-TOKEN = os.getenv('GITHUB_TOKEN', 'default_token_here')
-if TOKEN == 'default_token_here':
-    raise EnvironmentError("GITHUB_TOKEN environment variable not set.")
+def github_auth_headers():
+    # Get GitHub token from environment or local .env
+    load_dotenv()
+    TOKEN = os.getenv("GITHUB_TOKEN")
+    if not TOKEN:
+        raise EnvironmentError("GITHUB_TOKEN isn't set!")
+    return {"Authorization": f"token {TOKEN}"}
 
-headers = {"Authorization": f"token {TOKEN}"}
+allowed_extensions = []
+allowed_extension_groups = {
+    "c_like":    { "ext_list": ['.c', '.h'], "enabled": 1 },
+    "web":       { "ext_list": ['.html', '.css', '.js', '.ts', '.tsx'], "enabled": 1 },
+    "data":      { "ext_list": ['.csv', '.json', '.jsonl', '.toml', '.yaml'], "enabled": 1 },
+    "python":    { "ext_list": ['.py', '.pyx', '.ipynb'], "enabled": 1 },
+    "scripting": { "ext_list": ['.sh', '.cjs'], "enabled": 1 },
+    "rust":      { "ext_list": ['.rs'], "enabled": 1 },
+    "markdown":  { "ext_list": ['.md'], "enabled": 1 },
+    "sql":       { "ext_list": ['.sql'], "enabled": 1 },
+    "config":    { "ext_list": ['.env', '.env.example', '.example'], "enabled": 1 },
+    "misc":      { "ext_list": ['.localhost', '.txt'], "enabled": 1 }
+}
+for cat, data in allowed_extension_groups.items():
+    if data["enabled"]:
+        allowed_extensions.extend(data["ext_list"])
+allowed_extensions = sorted(allowed_extensions)
 
 def download_file(url, target_path):
+    headers = github_auth_headers()
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     with open(target_path, "wb") as f:
         f.write(response.content)
 
+def is_excluded_dir(dir_name):
+    # Define excluded patterns
+    excluded_patterns = [
+        re.compile(r'.*pip.*'),
+        re.compile(r'.*_internal.*'),
+        re.compile(r'\.env|\.venv|venv'),
+        re.compile(r'\.git|\.vscode|\.*cache.*|.*__pycache__.*|.*node_modules.*|.*dist.*|.*build.*|.*logs.*|.*tmp.*|.*temp')
+    ]
+
+    for pattern in excluded_patterns:
+        if pattern.search(dir_name):
+            return True
+
+    return False
+
 def is_allowed_filetype(filename):
-    allowed_extensions = ['.py', '.txt', '.js', '.tsx', '.ts', '.md', '.cjs', '.html', '.json', '.ipynb', '.h', '.localhost', '.sh', '.yaml', '.example']
-    return any(filename.endswith(ext) for ext in allowed_extensions)
-    
+    # For certain scenarios ie. including all '.txt' files except for 'output.txt' or 'log.txt'
+    excluded_extensions = ['.output.txt', '.log.txt']
+    for ext in excluded_extensions:
+        if filename.endswith(ext):
+            console.print(f"Excluded file: {filename} ({ext})", style="bold red")
+            return False
+
+    for ext in allowed_extensions:
+        if filename.endswith(ext):
+            # console.print(f"Allowed: {filename} ({ext})", style="bold green")
+            return True
+
+    ext = filename.split('.')[-1] if '.' in filename else 'no_extension'
+    console.print(f"Not allowed: {filename} ({ext})", style="bold red")
+    return False
 
 def process_ipynb_file(temp_file):
-    with open(temp_file, "r", encoding='utf-8', errors='ignore') as f:
+    with open(temp_file, "r", encoding="utf-8", errors="ignore") as f:
         notebook_content = f.read()
 
     exporter = PythonExporter()
-    python_code, _ = exporter.from_notebook_node(nbformat.reads(notebook_content, as_version=4))
+    python_code, _ = exporter.from_notebook_node(
+        nbformat.reads(notebook_content, as_version=4)
+    )
     return python_code
 
-def process_directory(url, output):
+def process_github_repo_directory(url, output):
+    headers = github_auth_headers()
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     files = response.json()
 
     for file in files:
         if file["type"] == "file" and is_allowed_filetype(file["name"]):
-            print(f"Processing {file['path']}...")
+            console.print(f"Processing {file['path']}...", style="bold blue")
 
             temp_file = f"temp_{file['name']}"
             download_file(file["download_url"], temp_file)
 
-            output.write(f"# {'-' * 3}\n")
+            output.write(f"# {'-' * 10}\n")
             output.write(f"# Filename: {file['path']}\n")
-            output.write(f"# {'-' * 3}\n\n")
+            output.write(f"# {'-' * 10}\n\n")
 
             if file["name"].endswith(".ipynb"):
                 output.write(process_ipynb_file(temp_file))
             else:
-                with open(temp_file, "r", encoding='utf-8', errors='ignore') as f:
+                with open(temp_file, "r", encoding="utf-8", errors="ignore") as f:
                     output.write(f.read())
 
-            output.write("\n\n")
+            output.write("\n")
+            # output.write("\n\n")
             os.remove(temp_file)
         elif file["type"] == "dir":
-            process_directory(file["url"], output)
+            process_github_repo_directory(file["url"], output)
+
+def process_local_dir_files(root, files, output):
+    for file in files:
+        file_path = os.path.join(root, file)
+        if is_allowed_filetype(file_path):
+            console.print(f"Processing {file_path}...", style="bold blue")
+
+            output.write(f"#{'#' * 10}\n")
+            output.write(f"# FILE - {file_path}:\n")
+            output.write(f"#{'#' * 10}\n\n")
+
+            if file_path.endswith(".ipynb"):
+                output.write(process_ipynb_file(file_path))
+            else:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    output.write(f.read())
+
+            output.write("\n")
+        else:
+            console.print(f"Not allowed: {file_path}", style="bold red")
 
 def process_local_directory(local_path, output):
+    root_dir = local_path
+
     for root, dirs, files in os.walk(local_path):
-        for file in files:
-            if is_allowed_filetype(file):
-                print(f"Processing {os.path.join(root, file)}...")
+        # console.print(f"T/ROOT :: {root}...", style="bold yellow")
+        # console.print(f"T/DIRS :: {dirs}...", style="bold yellow")
+        # console.print(f"T/FILES :: {files}...", style="bold yellow")
 
-                output.write(f"# {'-' * 3}\n")
-                output.write(f"# Filename: {os.path.join(root, file)}\n")
-                output.write(f"# {'-' * 3}\n\n")
-
-                file_path = os.path.join(root, file)
-
-                if file.endswith(".ipynb"):
-                    output.write(process_ipynb_file(file_path))
-                else:
-                    with open(file_path, "r", encoding='utf-8', errors='ignore') as f:
-                        output.write(f.read())
-
-                output.write("\n\n")
+        # Process the root dir files before the rest of the directory's contents, so whole directories can be skipped over completely
+        if root == root_dir:
+            process_local_dir_files(root, files, output)
+        else:
+            if is_excluded_dir(root):
+                console.print(f"Excluding directory: '{root}'", style="bold red")
+            else:
+                console.print(f"Including directory: '{root}'...", style="bold green")
+                for dir in dirs:
+                    dir_path = os.path.join(root, dir)
+                    process_local_dir_files(dir_path, os.listdir(dir_path), output)
 
 def process_github_repo(repo_url):
+    headers = github_auth_headers()
     api_base_url = "https://api.github.com/repos/"
     repo_url_parts = repo_url.split("https://github.com/")[-1].split("/")
     repo_name = "/".join(repo_url_parts[:2])
@@ -126,14 +201,14 @@ def process_github_repo(repo_url):
 
     repo_content = []
 
-    def process_directory(url, repo_content):
+    def process_github_repo_directory(url, repo_content):
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         files = response.json()
 
         for file in files:
             if file["type"] == "file" and is_allowed_filetype(file["name"]):
-                print(f"Processing {file['path']}...")
+                console.print(f"Processing {file['path']}...", style="bold blue")
 
                 temp_file = f"temp_{file['name']}"
                 download_file(file["download_url"], temp_file)
@@ -145,58 +220,60 @@ def process_github_repo(repo_url):
                 if file["name"].endswith(".ipynb"):
                     repo_content.append(process_ipynb_file(temp_file))
                 else:
-                    with open(temp_file, "r", encoding='utf-8', errors='ignore') as f:
+                    with open(temp_file, "r", encoding="utf-8", errors="ignore") as f:
                         repo_content.append(f.read())
 
                 repo_content.append("\n\n")
                 os.remove(temp_file)
             elif file["type"] == "dir":
-                process_directory(file["url"], repo_content)
+                process_github_repo_directory(file["url"], repo_content)
 
-    process_directory(contents_url, repo_content)
-    print("All files processed.")
+    process_github_repo_directory(contents_url, repo_content)
+    console.print("All files processed.", style="bold green")
 
     return "\n".join(repo_content)
 
 def process_local_folder(local_path, output_file):
-    with open(output_file, "w", encoding='utf-8') as output:
+    with open(output_file, "w", encoding="utf-8") as output:
         process_local_directory(local_path, output)
 
-    print("All files processed.")
+    console.print("All files processed.", style="bold green")
 
 def process_arxiv_pdf(arxiv_abs_url, output_file):
     pdf_url = arxiv_abs_url.replace("/abs/", "/pdf/") + ".pdf"
     response = requests.get(pdf_url)
     pdf_content = response.content
 
-    with open('temp.pdf','wb') as pdf_file:
+    with open("temp.pdf", "wb") as pdf_file:
         pdf_file.write(pdf_content)
 
     text = []
-    with open('temp.pdf', 'rb') as pdf_file:
+    with open("temp.pdf", "rb") as pdf_file:
         pdf_reader = PdfReader(pdf_file)
         for page in range(len(pdf_reader.pages)):
             text.append(pdf_reader.pages[page].extract_text())
 
-    with open(output_file, "w", encoding='utf-8') as output:
-        output.write(' '.join(text))
+    with open(output_file, "w", encoding="utf-8") as output:
+        output.write(" ".join(text))
 
-    print("All files processed.")
+    console.print("All files processed.", style="bold green")
 
 def extract_links(input_file, output_file):
-    url_pattern = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
-    
-    with open(input_file, 'r', encoding='utf-8') as file:
+    url_pattern = re.compile(
+        r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
+    )
+
+    with open(input_file, "r", encoding="utf-8") as file:
         content = file.read()
         urls = re.findall(url_pattern, content)
-    
-    with open(output_file, 'w', encoding='utf-8') as output:
+
+    with open(output_file, "w", encoding="utf-8") as output:
         for url in urls:
-            output.write(url + '\n')
+            output.write(url + "\n")
 
 def fetch_youtube_transcript(url):
     def extract_video_id(url):
-        pattern = r'(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
+        pattern = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})"
         match = re.search(pattern, url)
         if match:
             return match.group(1)
@@ -232,7 +309,7 @@ def preprocess_text(input_file, output_file):
 
 def get_token_count(text):
     enc = tiktoken.get_encoding("cl100k_base")
-    disallowed_special = enc.special_tokens_set - {''}
+    disallowed_special = enc.special_tokens_set - {""}
     tokens = enc.encode(text, disallowed_special=disallowed_special)
     return len(tokens)
 
@@ -240,10 +317,10 @@ def is_same_domain(base_url, new_url):
     return urlparse(base_url).netloc == urlparse(new_url).netloc
 
 def is_within_depth(base_url, current_url, max_depth):
-    base_parts = urlparse(base_url).path.rstrip('/').split('/')
-    current_parts = urlparse(current_url).path.rstrip('/').split('/')
+    base_parts = urlparse(base_url).path.rstrip("/").split("/")
+    current_parts = urlparse(current_url).path.rstrip("/").split("/")
 
-    if current_parts[:len(base_parts)] != base_parts:
+    if current_parts[: len(base_parts)] != base_parts:
         return False
 
     return len(current_parts) - len(base_parts) <= max_depth
@@ -252,19 +329,21 @@ def process_pdf(url):
     response = requests.get(url)
     response.raise_for_status()
 
-    with open('temp.pdf', 'wb') as pdf_file:
+    with open("temp.pdf", "wb") as pdf_file:
         pdf_file.write(response.content)
 
     text = []
-    with open('temp.pdf', 'rb') as pdf_file:
+    with open("temp.pdf", "rb") as pdf_file:
         pdf_reader = PdfReader(pdf_file)
         for page in range(len(pdf_reader.pages)):
             text.append(pdf_reader.pages[page].extract_text())
 
-    os.remove('temp.pdf')
-    return ' '.join(text)
+    os.remove("temp.pdf")
+    return " ".join(text)
 
-def crawl_and_extract_text(base_url, output_file, urls_list_file, max_depth, include_pdfs, ignore_epubs):
+def crawl_and_extract_text(
+    base_url, output_file, urls_list_file, max_depth, include_pdfs, ignore_epubs
+):
     visited_urls = set()
     urls_to_visit = [(base_url, 0)]
     processed_urls = []
@@ -272,102 +351,118 @@ def crawl_and_extract_text(base_url, output_file, urls_list_file, max_depth, inc
 
     while urls_to_visit:
         current_url, current_depth = urls_to_visit.pop(0)
-        clean_url = current_url.split('#')[0]
+        clean_url = current_url.split("#")[0]
 
-        if clean_url not in visited_urls and is_same_domain(base_url, clean_url) and is_within_depth(base_url, clean_url, max_depth):
-            if ignore_epubs and clean_url.endswith('.epub'):
+        if (
+            clean_url not in visited_urls
+            and is_same_domain(base_url, clean_url)
+            and is_within_depth(base_url, clean_url, max_depth)
+        ):
+            if ignore_epubs and clean_url.endswith(".epub"):
                 continue
 
             try:
                 response = requests.get(current_url)
-                soup = BeautifulSoup(response.content, 'html.parser')
+                soup = BeautifulSoup(response.content, "html.parser")
                 visited_urls.add(clean_url)
 
-                if clean_url.endswith('.pdf') and include_pdfs:
+                if clean_url.endswith(".pdf") and include_pdfs:
                     text = process_pdf(clean_url)
                 else:
-                    for element in soup(['script', 'style', 'head', 'title', 'meta', '[document]']):
+                    for element in soup(
+                        ["script", "style", "head", "title", "meta", "[document]"]
+                    ):
                         element.decompose()
-                    comments = soup.find_all(string=lambda text: isinstance(text, Comment))
+                    comments = soup.find_all(
+                        string=lambda text: isinstance(text, Comment)
+                    )
                     for comment in comments:
                         comment.extract()
-                    text = soup.get_text(separator='\n', strip=True)
+                    text = soup.get_text(separator="\n", strip=True)
 
                 all_text += f"\n\n# URL: {clean_url}\n{text}"
                 processed_urls.append(clean_url)
-                print(f"Processed: {clean_url}")
+                console.print(f"Processed: {clean_url}", style="bold blue")
 
                 if current_depth < max_depth:
-                    for link in soup.find_all('a', href=True):
-                        new_url = urljoin(current_url, link['href']).split('#')[0]
-                        if new_url not in visited_urls and is_within_depth(base_url, new_url, max_depth) and (include_pdfs or not new_url.endswith('.pdf')) and not (ignore_epubs and new_url.endswith('.epub')):
+                    for link in soup.find_all("a", href=True):
+                        new_url = urljoin(current_url, link["href"]).split("#")[0]
+                        if (
+                            new_url not in visited_urls
+                            and is_within_depth(base_url, new_url, max_depth)
+                            and (include_pdfs or not new_url.endswith(".pdf"))
+                            and not (ignore_epubs and new_url.endswith(".epub"))
+                        ):
                             urls_to_visit.append((new_url, current_depth + 1))
 
             except requests.RequestException as e:
-                print(f"Failed to retrieve {clean_url}: {e}")
+                console.print(f"Failed to retrieve {clean_url}: {e}", style="bold red")
 
-    processed_urls_string = '\n'.join(processed_urls)
+    processed_urls_string = "\n".join(processed_urls)
     header = f"Generated text from the website: {base_url}. This includes content from the base page and all linked pages up to {max_depth} levels deep.\nProcessed URLs:\n{processed_urls_string}\n\n"
-    
+
     all_text = header + all_text
 
-    with open(output_file, 'w', encoding='utf-8') as file:
+    with open(output_file, "w", encoding="utf-8") as file:
         file.write(all_text)
 
-    with open(urls_list_file, 'w', encoding='utf-8') as urls_file:
+    with open(urls_list_file, "w", encoding="utf-8") as urls_file:
         for url in processed_urls:
-            urls_file.write(url + '\n')
+            urls_file.write(url + "\n")
 
     return all_text
 
 def process_doi_or_pmid(identifier, output_file):
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 6.3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36',
-        'Connection': 'keep-alive'
+        "User-Agent": "Mozilla/5.0 (Windows NT 6.3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36",
+        "Connection": "keep-alive",
     }
 
     try:
-        payload = {
-            'sci-hub-plugin-check': '',
-            'request': identifier
-        }
+        payload = {"sci-hub-plugin-check": "", "request": identifier}
 
-        base_url = 'https://sci-hub.se/'
+        base_url = "https://sci-hub.se/"
         response = requests.post(base_url, headers=headers, data=payload, timeout=60)
-        soup = BeautifulSoup(response.content, 'html.parser')
-        pdf_element = soup.find(id='pdf')
+        soup = BeautifulSoup(response.content, "html.parser")
+        pdf_element = soup.find(id="pdf")
 
         if pdf_element is None:
-            raise ValueError(f"No PDF found for identifier {identifier}. Sci-hub might be inaccessible or the document is not available.")
+            raise ValueError(
+                f"No PDF found for identifier {identifier}. Sci-hub might be inaccessible or the document is not available."
+            )
 
-        content = pdf_element.get('src').replace('#navpanes=0&view=FitH', '').replace('//', '/')
+        content = (
+            pdf_element.get("src")
+            .replace("#navpanes=0&view=FitH", "")
+            .replace("//", "/")
+        )
 
-        if content.startswith('/downloads'):
-            pdf_url = 'https://sci-hub.se' + content
-        elif content.startswith('/tree'):
-            pdf_url = 'https://sci-hub.se' + content
-        elif content.startswith('/uptodate'):
-            pdf_url = 'https://sci-hub.se' + content
+        if content.startswith("/downloads"):
+            pdf_url = "https://sci-hub.se" + content
+        elif content.startswith("/tree"):
+            pdf_url = "https://sci-hub.se" + content
+        elif content.startswith("/uptodate"):
+            pdf_url = "https://sci-hub.se" + content
         else:
-            pdf_url = 'https:/' + content
+            pdf_url = "https:/" + content
 
         pdf_filename = f"{identifier.replace('/', '-')}.pdf"
         wget.download(pdf_url, pdf_filename)
 
-        with open(pdf_filename, 'rb') as pdf_file:
+        with open(pdf_filename, "rb") as pdf_file:
             pdf_reader = PdfReader(pdf_file)
             text = ""
             for page in range(len(pdf_reader.pages)):
                 text += pdf_reader.pages[page].extract_text()
 
-        with open(output_file, "w", encoding='utf-8') as output:
+        with open(output_file, "w", encoding="utf-8") as output:
             output.write(text)
 
         os.remove(pdf_filename)
-        print(f"Identifier {identifier} processed successfully.")
+        console.print(f"Identifier {identifier} processed successfully.", style="bold green")
     except (requests.RequestException, ValueError) as e:
-        print(f"Error processing identifier {identifier}: {str(e)}")
-        print("Sci-hub appears to be inaccessible or the document was not found. Please try again later.")
+        console.print(f"Error processing identifier {identifier}: {str(e)}", style="bold red")
+        console.print("Sci-hub appears to be inaccessible or the document was not found. Please try again later.", style="bold yellow")
 
 def process_github_pull_request(pull_request_url, output_file):
     # Extract repository owner, repository name, and pull request number from the URL
@@ -378,7 +473,7 @@ def process_github_pull_request(pull_request_url, output_file):
 
     # Make API requests to retrieve pull request information
     api_base_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pull_request_number}"
-    headers = {"Authorization": f"token {TOKEN}"}
+    headers = github_auth_headers()
 
     # Retrieve pull request details
     response = requests.get(api_base_url, headers=headers)
@@ -416,7 +511,9 @@ def process_github_pull_request(pull_request_url, output_file):
     comment_index = 0
     for line in diff_lines:
         formatted_text += f"{line}\n"
-        while comment_index < len(all_comments) and all_comments[comment_index].get("position") == diff_lines.index(line):
+        while comment_index < len(all_comments) and all_comments[comment_index].get(
+            "position"
+        ) == diff_lines.index(line):
             comment = all_comments[comment_index]
             formatted_text += f"\n### Review Comment by {comment['user']['login']}:\n"
             formatted_text += f"{comment['body']}\n\n"
@@ -435,7 +532,7 @@ def process_github_pull_request(pull_request_url, output_file):
     with open(output_file, "w", encoding="utf-8") as file:
         file.write(final_output)
 
-    print(f"Pull request {pull_request_number} and repository content processed successfully.")
+    console.print(f"Pull request {pull_request_number} and repository content processed successfully.", style="bold green")
 
     return final_output
 
@@ -447,8 +544,10 @@ def process_github_issue(issue_url, output_file):
     issue_number = url_parts[-1]
 
     # Make API requests to retrieve issue information
-    api_base_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
-    headers = {"Authorization": f"token {TOKEN}"}
+    api_base_url = (
+        f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
+    )
+    headers = github_auth_headers()
 
     # Retrieve issue details
     response = requests.get(api_base_url, headers=headers)
@@ -470,20 +569,22 @@ def process_github_issue(issue_url, output_file):
         formatted_text += f"{comment['body']}\n"
 
         # Extract code snippets from comment
-        code_snippets = re.findall(r'https://github.com/.*#L\d+-L\d+', comment['body'])
+        code_snippets = re.findall(r"https://github.com/.*#L\d+-L\d+", comment["body"])
         for snippet_url in code_snippets:
             # Extract file path, start line, and end line from the snippet URL
             url_parts = snippet_url.split("#")
             file_url = url_parts[0].replace("/blob/", "/raw/")
             line_range = url_parts[1]
-            start_line, end_line = map(int, line_range.split("-")[0][1:]), map(int, line_range.split("-")[1][1:])
+            start_line, end_line = map(int, line_range.split("-")[0][1:]), map(
+                int, line_range.split("-")[1][1:]
+            )
 
             # Make API request to retrieve the file content
             file_response = requests.get(file_url, headers=headers)
             file_content = file_response.text
 
             # Extract the code snippet based on the line range
-            code_lines = file_content.split("\n")[start_line-1:end_line]
+            code_lines = file_content.split("\n")[start_line - 1 : end_line]
             code_snippet = "\n".join(code_lines)
 
             # Add the code snippet to the formatted text
@@ -500,13 +601,11 @@ def process_github_issue(issue_url, output_file):
     with open(output_file, "w", encoding="utf-8") as file:
         file.write(final_output)
 
-    print(f"Issue {issue_number} and repository content processed successfully.")
+    console.print(f"Issue {issue_number} and repository content processed successfully.", style="bold green")
 
     return final_output
 
 def main():
-    console = Console()
-
     intro_text = Text("\nInput Paths or URLs Processed:\n", style="dodger_blue1")
     input_types = [
         ("• Local folder path(flattens all files into text)", "bright_white"),
@@ -535,11 +634,16 @@ def main():
     if len(sys.argv) > 1:
         input_path = sys.argv[1]
     else:
-        input_path = Prompt.ask("\n[bold dodger_blue1]Enter the path or URL[/bold dodger_blue1]", console=console)
-    
-    console.print(f"\n[bold bright_green]You entered:[/bold bright_green] [bold bright_yellow]{input_path}[/bold bright_yellow]\n")
+        input_path = Prompt.ask(
+            "\n[bold dodger_blue1]Enter the path or URL[/bold dodger_blue1]",
+            console=console,
+        )
 
-    output_file = "uncompressed_output.txt"
+    console.print(
+        f"\n[bold bright_green]You entered:[/bold bright_green] [bold bright_yellow]{input_path}[/bold bright_yellow]\n"
+    )
+
+    output_file = "uncompressed.output.txt"
     urls_list_file = "processed_urls.txt"
 
     with Progress(
@@ -565,17 +669,28 @@ def main():
             if "youtube.com" in input_path or "youtu.be" in input_path:
                 transcript = fetch_youtube_transcript(input_path)
                 if transcript:
-                    with open(output_file, "w", encoding='utf-8') as output:
+                    with open(output_file, "w", encoding="utf-8") as output:
                         output.write(f"# YouTube Video Transcript\n")
                         output.write(f"# URL: {input_path}\n\n")
                         output.write(transcript)
-                    print("[bright_green]YouTube video transcript processed.[/bright_green]")
+                    console.print(
+                        "[bright_green]YouTube video transcript processed.[/bright_green]"
+                    )
                 else:
-                    print("[bright_yellow]No transcript available for the YouTube video.[/bright_yellow]")
+                    console.print(
+                        "[bright_yellow]No transcript available for the YouTube video.[/bright_yellow]"
+                    )
             elif "arxiv.org" in input_path:
                 process_arxiv_pdf(input_path, output_file)
             else:
-                final_output = crawl_and_extract_text(input_path, output_file, urls_list_file, max_depth=2, include_pdfs=True, ignore_epubs=True)
+                final_output = crawl_and_extract_text(
+                    input_path,
+                    output_file,
+                    urls_list_file,
+                    max_depth=2,
+                    include_pdfs=True,
+                    ignore_epubs=True,
+                )
         elif input_path.startswith("10.") and "/" in input_path or input_path.isdigit():
             process_doi_or_pmid(input_path, output_file)
         else:
@@ -583,23 +698,31 @@ def main():
 
         progress.update(task, advance=50)
 
-        processed_file = "compressed_output.txt"
+        processed_file = "compressed.output.txt"
         preprocess_text(output_file, processed_file)
 
         progress.update(task, advance=50)
 
     compressed_text = safe_file_read(processed_file)
     compressed_token_count = get_token_count(compressed_text)
-    print(f"\n[bright_green]Compressed Token Count:[/bright_green] [bold bright_cyan]{compressed_token_count}[/bold bright_cyan]")
+    console.print(
+        f"\n[bright_green]Compressed Token Count:[/bright_green] [bold bright_cyan]{compressed_token_count}[/bold bright_cyan]"
+    )
 
     uncompressed_text = safe_file_read(output_file)
     uncompressed_token_count = get_token_count(uncompressed_text)
-    print(f"[bright_green]Uncompressed Token Count:[/bright_green] [bold bright_cyan]{uncompressed_token_count}[/bold bright_cyan]")
+    console.print(
+        f"[bright_green]Uncompressed Token Count:[/bright_green] [bold bright_cyan]{uncompressed_token_count}[/bold bright_cyan]"
+    )
 
-    print(f"\n[bold bright_yellow]compressed_output.txt[/bold bright_yellow] and [bold bright_blue]uncompressed_output.txt[/bold bright_blue] have been created in the working directory.")
+    console.print(
+        f"\n[bold bright_yellow]compressed.output.txt[/bold bright_yellow] and [bold bright_blue]uncompressed.output.txt[/bold bright_blue] have been created in the working directory."
+    )
 
     pyperclip.copy(uncompressed_text)
-    console.print(f"\n[bright_white]The contents of [bold bright_blue]{output_file}[/bold bright_blue] have been copied to the clipboard.[/bright_white]")
+    console.print(
+        f"\n[bright_white]The contents of [bold bright_blue]{output_file}[/bold bright_blue] have been copied to the clipboard.[/bright_white]"
+    )
 
 if __name__ == "__main__":
     main()

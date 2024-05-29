@@ -1,10 +1,13 @@
 # Outputs
-*_output.txt
+*.output.txt
 processed_urls.txt
 
 # Env
 .env
 *venv
+
+# Testing
+_test/
 
 # Editors
 .project

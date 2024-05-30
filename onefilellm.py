@@ -28,7 +28,63 @@ from rich.syntax import Syntax
 from rich.traceback import install
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 
+### FLAGS ###
+enable_clipboard = False
+
 console = Console()
+allowed_extensions = []
+exclude_paths = []
+
+def set_filters():
+    _allowed = []
+    ext_categories = {
+        "c_like":    { "ext_list": ['.c', '.h'], "enabled": 1 },
+        "web":       { "ext_list": ['.html', '.css', '.js', '.ts', '.tsx'], "enabled": 1 },
+        "data":      { "ext_list": ['.csv', '.json', '.jsonl', '.toml', '.yaml'], "enabled": 1 },
+        "python":    { "ext_list": ['.py', '.pyx', '.ipynb'], "enabled": 1 },
+        "scripting": { "ext_list": ['.sh', '.cjs'], "enabled": 1 },
+        "rust":      { "ext_list": ['.rs'], "enabled": 1 },
+        "markdown":  { "ext_list": ['.md'], "enabled": 1 },
+        "sql":       { "ext_list": ['.sql'], "enabled": 1 },
+        "config":    { "ext_list": ['.env', '.env.example', '.example'], "enabled": 1 },
+        "misc":      { "ext_list": ['.localhost', '.txt'], "enabled": 1 }
+    }
+
+    for cat, data in ext_categories.items():
+        if data["enabled"]:
+            _allowed.extend(data["ext_list"])
+            _allowed = sorted(_allowed)
+            allowed_extensions.extend(_allowed)
+            console.print(f"Enabled: {cat} ({data['ext_list']})", style="bold green")
+
+    # Define path exclude patterns
+    exclude_paths.extend([
+        re.compile(r'.*pip.*'),
+        re.compile(r'.*_internal.*'),
+        re.compile(r'\.env|\.venv|venv'),
+        re.compile(r'\.git|\.vscode|\.*cache.*|.*__pycache__.*|.*node_modules.*|.*dist.*|.*build.*|.*logs.*|.*tmp.*|.*temp')
+    ])
+
+def should_exclude(dir_name):
+    for pattern in exclude_paths:
+        if pattern.search(dir_name):
+            return True
+    return False
+
+def is_allowed_filetype(filename):
+    # ex. scenario: include all '.txt' files except for 'output.txt' or 'log.txt'
+    excluded_extensions = ['.output.txt', '.log.txt']
+    for ext in excluded_extensions:
+        if filename.endswith(ext):
+            console.print(f"Excluded: {filename} ({ext})", style="bold red")
+            return False
+
+    for ext in allowed_extensions:
+        if filename.endswith(ext):
+            return True
+
+    ext = filename.split('.')[-1] if '.' in filename else 'no_extension'
+    return False
 
 def safe_file_read(filepath, fallback_encoding="latin1"):
     try:
@@ -49,62 +105,12 @@ def github_auth_headers():
         raise EnvironmentError("GITHUB_TOKEN isn't set!")
     return {"Authorization": f"token {TOKEN}"}
 
-allowed_extensions = []
-allowed_extension_groups = {
-    "c_like":    { "ext_list": ['.c', '.h'], "enabled": 1 },
-    "web":       { "ext_list": ['.html', '.css', '.js', '.ts', '.tsx'], "enabled": 1 },
-    "data":      { "ext_list": ['.csv', '.json', '.jsonl', '.toml', '.yaml'], "enabled": 1 },
-    "python":    { "ext_list": ['.py', '.pyx', '.ipynb'], "enabled": 1 },
-    "scripting": { "ext_list": ['.sh', '.cjs'], "enabled": 1 },
-    "rust":      { "ext_list": ['.rs'], "enabled": 1 },
-    "markdown":  { "ext_list": ['.md'], "enabled": 1 },
-    "sql":       { "ext_list": ['.sql'], "enabled": 1 },
-    "config":    { "ext_list": ['.env', '.env.example', '.example'], "enabled": 1 },
-    "misc":      { "ext_list": ['.localhost', '.txt'], "enabled": 1 }
-}
-for cat, data in allowed_extension_groups.items():
-    if data["enabled"]:
-        allowed_extensions.extend(data["ext_list"])
-allowed_extensions = sorted(allowed_extensions)
-
 def download_file(url, target_path):
     headers = github_auth_headers()
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     with open(target_path, "wb") as f:
         f.write(response.content)
-
-def is_excluded_dir(dir_name):
-    # Define excluded patterns
-    excluded_patterns = [
-        re.compile(r'.*pip.*'),
-        re.compile(r'.*_internal.*'),
-        re.compile(r'\.env|\.venv|venv'),
-        re.compile(r'\.git|\.vscode|\.*cache.*|.*__pycache__.*|.*node_modules.*|.*dist.*|.*build.*|.*logs.*|.*tmp.*|.*temp')
-    ]
-
-    for pattern in excluded_patterns:
-        if pattern.search(dir_name):
-            return True
-
-    return False
-
-def is_allowed_filetype(filename):
-    # For certain scenarios ie. including all '.txt' files except for 'output.txt' or 'log.txt'
-    excluded_extensions = ['.output.txt', '.log.txt']
-    for ext in excluded_extensions:
-        if filename.endswith(ext):
-            console.print(f"Excluded file: {filename} ({ext})", style="bold red")
-            return False
-
-    for ext in allowed_extensions:
-        if filename.endswith(ext):
-            # console.print(f"Allowed: {filename} ({ext})", style="bold green")
-            return True
-
-    ext = filename.split('.')[-1] if '.' in filename else 'no_extension'
-    console.print(f"Not allowed: {filename} ({ext})", style="bold red")
-    return False
 
 def process_ipynb_file(temp_file):
     with open(temp_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -138,10 +144,9 @@ def process_github_repo_directory(url, output):
             else:
                 with open(temp_file, "r", encoding="utf-8", errors="ignore") as f:
                     output.write(f.read())
-
-            output.write("\n")
-            # output.write("\n\n")
+            # output.write(f"\n")
             os.remove(temp_file)
+
         elif file["type"] == "dir":
             process_github_repo_directory(file["url"], output)
 
@@ -149,7 +154,7 @@ def process_local_dir_files(root, files, output):
     for file in files:
         file_path = os.path.join(root, file)
         if is_allowed_filetype(file_path):
-            console.print(f"Processing {file_path}...", style="bold blue")
+            console.print(f"Processing: {file_path}", style="bold blue")
 
             output.write(f"#{'#' * 10}\n")
             output.write(f"# FILE - {file_path}:\n")
@@ -160,30 +165,29 @@ def process_local_dir_files(root, files, output):
             else:
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                     output.write(f.read())
-
             output.write("\n")
-        else:
-            console.print(f"Not allowed: {file_path}", style="bold red")
 
 def process_local_directory(local_path, output):
     root_dir = local_path
 
     for root, dirs, files in os.walk(local_path):
-        # console.print(f"T/ROOT :: {root}...", style="bold yellow")
-        # console.print(f"T/DIRS :: {dirs}...", style="bold yellow")
-        # console.print(f"T/FILES :: {files}...", style="bold yellow")
-
-        # Process the root dir files before the rest of the directory's contents, so whole directories can be skipped over completely
         if root == root_dir:
             process_local_dir_files(root, files, output)
         else:
-            if is_excluded_dir(root):
-                console.print(f"Excluding directory: '{root}'", style="bold red")
+            if should_exclude(root):
+                console.print(f"Excluding path: {root}", style="bold red")
+                dirs[:] = [] # Clear the dirs list to skip processing subdirectories
+                continue
             else:
-                console.print(f"Including directory: '{root}'...", style="bold green")
+                console.print(f"Including path: {root}", style="bold green")
+                process_local_dir_files(root, files, output)
                 for dir in dirs:
                     dir_path = os.path.join(root, dir)
-                    process_local_dir_files(dir_path, os.listdir(dir_path), output)
+                    if should_exclude(dir_path):
+                        console.print(f"Excluding sub-path: '{dir_path}'", style="bold red")
+                        dirs.remove(dir) # Remove the directory to skip processing its contents
+                    else:
+                        process_local_dir_files(dir_path, os.listdir(dir_path), output)
 
 def process_github_repo(repo_url):
     headers = github_auth_headers()
@@ -229,15 +233,15 @@ def process_github_repo(repo_url):
                 process_github_repo_directory(file["url"], repo_content)
 
     process_github_repo_directory(contents_url, repo_content)
-    console.print("All files processed.", style="bold green")
 
+    console.print("\nAll files processed.\n", style="bold green")
     return "\n".join(repo_content)
 
 def process_local_folder(local_path, output_file):
     with open(output_file, "w", encoding="utf-8") as output:
         process_local_directory(local_path, output)
 
-    console.print("All files processed.", style="bold green")
+    console.print("\nAll files processed.\n", style="bold green")
 
 def process_arxiv_pdf(arxiv_abs_url, output_file):
     pdf_url = arxiv_abs_url.replace("/abs/", "/pdf/") + ".pdf"
@@ -256,7 +260,7 @@ def process_arxiv_pdf(arxiv_abs_url, output_file):
     with open(output_file, "w", encoding="utf-8") as output:
         output.write(" ".join(text))
 
-    console.print("All files processed.", style="bold green")
+    console.print("\nAll files processed.\n", style="bold green")
 
 def extract_links(input_file, output_file):
     url_pattern = re.compile(
@@ -606,16 +610,18 @@ def process_github_issue(issue_url, output_file):
     return final_output
 
 def main():
-    intro_text = Text("\nInput Paths or URLs Processed:\n", style="dodger_blue1")
+    intro_text = Text("Input Options:\n", style="dodger_blue1")
     input_types = [
-        ("• Local folder path(flattens all files into text)", "bright_white"),
-        ("• GitHub repository URL(flattens all files into text)", "bright_white"),
-        ("• GitHub pull request URL(PR + Repo)", "bright_white"),
-        ("• GitHub issue URL(Issue + Repo)", "bright_white"),
-        ("• Documentation URL (base URL)", "bright_white"),
-        ("• YouTube video URL (to fetch transcript)", "bright_white"),
-        ("• ArXiv Paper URL", "bright_white"),
-        ("• DOI or PMID to search on Sci-Hub", "bright_white"),
+        ("• Local Dir. Path\n", "bright_white"),
+        ("• URL - GitHub", "bright_white"),
+        ("  ⟹ Repository [Repo Contents]", "bright_white"),
+        ("  ⟹ Pull Request [PR + Repo Contents]", "bright_white"),
+        ("  ⟹ Issue [Issue + Repo Contents]", "bright_white"),
+        ("\n• URL - Other", "bright_white"),
+        ("  ⟹ Documentation (Docs Base URL)", "bright_white"),
+        ("  ⟹ YouTube Video [Transcript]", "bright_white"),
+        ("  ⟹ ArXiv Paper", "bright_white"),
+        ("  ⟹ Sci-Hub Paper (DOI/PMID URL)", "bright_white"),
     ]
 
     for input_type, color in input_types:
@@ -625,22 +631,23 @@ def main():
         intro_text,
         expand=False,
         border_style="bold",
-        title="[bright_white]Copy to File and Clipboard[/bright_white]",
+        title="[bright_white]Path/URL Types[/bright_white]",
         title_align="center",
         padding=(1, 1),
     )
+    console.print("\n")
     console.print(intro_panel)
 
     if len(sys.argv) > 1:
         input_path = sys.argv[1]
     else:
         input_path = Prompt.ask(
-            "\n[bold dodger_blue1]Enter the path or URL[/bold dodger_blue1]",
+            "\n[bold dodger_blue1]Enter path or URL[/bold dodger_blue1]",
             console=console,
         )
 
     console.print(
-        f"\n[bold bright_green]You entered:[/bold bright_green] [bold bright_yellow]{input_path}[/bold bright_yellow]\n"
+        f"\n[bold bright_green]You entered:[/bold bright_green] [bold bright_yellow]{input_path}[/bold bright_yellow]"
     )
 
     output_file = "uncompressed.output.txt"
@@ -652,8 +659,8 @@ def main():
         TimeRemainingColumn(),
         console=console,
     ) as progress:
-
         task = progress.add_task("[bright_blue]Processing...", total=100)
+        set_filters()
 
         if "github.com" in input_path:
             if "/pull/" in input_path:
@@ -716,13 +723,14 @@ def main():
     )
 
     console.print(
-        f"\n[bold bright_yellow]compressed.output.txt[/bold bright_yellow] and [bold bright_blue]uncompressed.output.txt[/bold bright_blue] have been created in the working directory."
+        f"\n[bold bright_yellow]compressed.output.txt[/bold bright_yellow] & [bold bright_blue]uncompressed.output.txt[/bold bright_blue] have been created in the working directory.\n"
     )
 
-    pyperclip.copy(uncompressed_text)
-    console.print(
-        f"\n[bright_white]The contents of [bold bright_blue]{output_file}[/bold bright_blue] have been copied to the clipboard.[/bright_white]"
-    )
+    if enable_clipboard:
+        pyperclip.copy(uncompressed_text)
+        console.print(
+            f"[bright_white]The contents of [bold bright_blue]{output_file}[/bold bright_blue] have been copied to the clipboard.[/bright_white]\n"
+        )
 
 if __name__ == "__main__":
     main()

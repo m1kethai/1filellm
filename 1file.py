@@ -728,12 +728,12 @@ def main():
 
         progress.update(task, advance=50)
 
-        processed_file = "compressed.output.txt"
-        preprocess_text(output_file, processed_file)
+        compressed_output_file = os.path.join(output_dir, "compressed.output.txt")
+        preprocess_text(output_file, compressed_output_file)
 
         progress.update(task, advance=50)
 
-    compressed_text = safe_file_read(processed_file)
+    compressed_text = safe_file_read(compressed_output_file)
     compressed_token_count = get_token_count(compressed_text)
     console.print(
         f"\n[bold chartreuse1]Compressed Token Count:[/bold chartreuse1] [orchid]{compressed_token_count}[/orchid]"

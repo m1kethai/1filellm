@@ -609,6 +609,22 @@ def process_github_issue(issue_url, output_file):
 
     return final_output
 
+#! WIP - automatically restructure the 1st-pass content and remove useless/irrelevant/repetitive text
+# def clean_and_restructure_content(content):
+#     # Remove navigation and footer content
+#     lines = content.split('\n')
+#     cleaned_lines = []
+#     for line in lines:
+#         if 'Navigation' in line or 'index' in line or 'previous' in line or 'next' in line or '©' in line or 'Options' in line:
+#             continue
+#         cleaned_lines.append(line)
+
+#     # Join the cleaned lines
+#     cleaned_content = '\n'.join(cleaned_lines)
+#     return cleaned_content
+# # Clean and restructure the content
+# cleaned_content = clean_and_restructure_content(content)
+
 def main():
     intro_text = Text("Input Options:\n", style="dodger_blue1")
     input_types = [

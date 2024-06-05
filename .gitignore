@@ -6,9 +6,6 @@ processed_urls.txt
 .env
 *venv
 
-# Testing
-_test/
-
 # Editors
 .project
 .settings

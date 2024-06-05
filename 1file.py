@@ -36,7 +36,6 @@ allowed_extensions = []
 exclude_paths = []
 
 def set_filters():
-    _allowed = []
     ext_categories = {
         "c_like":    { "ext_list": ['.c', '.h'], "enabled": 1 },
         "web":       { "ext_list": ['.html', '.css', '.js', '.ts', '.tsx'], "enabled": 1 },
@@ -49,13 +48,16 @@ def set_filters():
         "config":    { "ext_list": ['.env', '.env.example', '.example'], "enabled": 1 },
         "misc":      { "ext_list": ['.localhost', '.txt'], "enabled": 1 }
     }
+    _allowed = []
 
+    console.print("\nAllowed File Types:\n", style="bold chartreuse1 underline")
     for cat, data in ext_categories.items():
         if data["enabled"]:
             _allowed.extend(data["ext_list"])
             _allowed = sorted(_allowed)
             allowed_extensions.extend(_allowed)
-            console.print(f"Enabled: {cat} ({data['ext_list']})", style="bold green")
+            console.print(f"{cat} => ({data['ext_list']})", style="aquamarine3")
+    console.print("\n")
 
     # Define path exclude patterns
     exclude_paths.extend([
@@ -351,7 +353,7 @@ def crawl_and_extract_text(
     visited_urls = set()
     urls_to_visit = [(base_url, 0)]
     processed_urls = []
-    all_text = ""
+    all_text = "##### EXTRACTED TEXT BELOW #####\n"
 
     while urls_to_visit:
         current_url, current_depth = urls_to_visit.pop(0)
@@ -384,9 +386,12 @@ def crawl_and_extract_text(
                         comment.extract()
                     text = soup.get_text(separator="\n", strip=True)
 
-                all_text += f"\n\n# URL: {clean_url}\n{text}"
+                console.print(f"[bold dark_orange3]Processing:[/bold dark_orange3] [royal_blue1]{clean_url}[/royal_blue1]")
+                all_text += f"\n\n# <URL START> ------------------------------------\n"
+                all_text += f"# {clean_url} #\n\n{text}"
+                all_text += f"\n# ------------------------------------- </URL END>\n\n"
                 processed_urls.append(clean_url)
-                console.print(f"Processed: {clean_url}", style="bold blue")
+                console.print(f"[bold light_green]Processed:[/bold light_green] [royal_blue1]{clean_url}[/royal_blue1]")
 
                 if current_depth < max_depth:
                     for link in soup.find_all("a", href=True):
@@ -403,7 +408,7 @@ def crawl_and_extract_text(
                 console.print(f"Failed to retrieve {clean_url}: {e}", style="bold red")
 
     processed_urls_string = "\n".join(processed_urls)
-    header = f"Generated text from the website: {base_url}. This includes content from the base page and all linked pages up to {max_depth} levels deep.\nProcessed URLs:\n{processed_urls_string}\n\n"
+    header = f"Generated text from the website: {base_url}. This includes content from the base page and all linked pages up to {max_depth} levels deep.\n\nProcessed URLs:\n{processed_urls_string}\n\n"
 
     all_text = header + all_text
 
@@ -626,33 +631,32 @@ def process_github_issue(issue_url, output_file):
 # cleaned_content = clean_and_restructure_content(content)
 
 def main():
-    intro_text = Text("Input Options:\n", style="dodger_blue1")
-    input_types = [
-        ("• Local Dir. Path\n", "bright_white"),
-        ("• URL - GitHub", "bright_white"),
-        ("  ⟹ Repository [Repo Contents]", "bright_white"),
-        ("  ⟹ Pull Request [PR + Repo Contents]", "bright_white"),
-        ("  ⟹ Issue [Issue + Repo Contents]", "bright_white"),
-        ("\n• URL - Other", "bright_white"),
-        ("  ⟹ Documentation (Docs Base URL)", "bright_white"),
-        ("  ⟹ YouTube Video [Transcript]", "bright_white"),
-        ("  ⟹ ArXiv Paper", "bright_white"),
-        ("  ⟹ Sci-Hub Paper (DOI/PMID URL)", "bright_white"),
+    intro_text = Text("Specify a local path or supported URL type\n", style="bright_white")
+    src_options = [
+        ("▫️ Local Directory (full path)", "pale_green3"),
+        ("▫️ GitHub:", "sky_blue1"),
+        ("  ⤷ Repository URL", "pale_green3"),
+        ("  ⤷ Pull Request  [PR + repo contents]", "pale_green3"),
+        ("  ⤷ Issue         [Issue + repo contents]", "pale_green3"),
+        ("▫️ Other:", "sky_blue1"),
+        ("  ⤷ Documentation (main docs URL)", "pale_green3"),
+        ("  ⤷ YouTube [Video transcript]", "pale_green3"),
+        ("  ⤷ ArXiv Paper", "pale_green3"),
+        ("  ⤷ Sci-Hub Paper (DOI/PMID URL)", "pale_green3"),
     ]
 
-    for input_type, color in input_types:
-        intro_text.append(f"\n{input_type}", style=color)
+    for src, color in src_options:
+        intro_text.append(f"\n{src}", style=color)
 
     intro_panel = Panel(
         intro_text,
         expand=False,
         border_style="bold",
-        title="[bright_white]Path/URL Types[/bright_white]",
+        title="[chartreuse1]Supported Inputs[/chartreuse1]",
         title_align="center",
         padding=(1, 1),
     )
-    console.print("\n")
-    console.print(intro_panel)
+    console.print(intro_panel, new_line_start=True)
 
     if len(sys.argv) > 1:
         input_path = sys.argv[1]
@@ -663,7 +667,7 @@ def main():
         )
 
     console.print(
-        f"\n[bold bright_green]You entered:[/bold bright_green] [bold bright_yellow]{input_path}[/bold bright_yellow]"
+        f"\n[bold underline chartreuse1]Your Input: [/bold underline chartreuse1] [bold pale_turquoise1]{input_path}[/bold pale_turquoise1]"
     )
 
     output_dir = "output"
@@ -732,23 +736,23 @@ def main():
     compressed_text = safe_file_read(processed_file)
     compressed_token_count = get_token_count(compressed_text)
     console.print(
-        f"\n[bright_green]Compressed Token Count:[/bright_green] [bold bright_cyan]{compressed_token_count}[/bold bright_cyan]"
+        f"\n[bold chartreuse1]Compressed Token Count:[/bold chartreuse1] [orchid]{compressed_token_count}[/orchid]"
     )
 
     uncompressed_text = safe_file_read(output_file)
     uncompressed_token_count = get_token_count(uncompressed_text)
     console.print(
-        f"[bright_green]Uncompressed Token Count:[/bright_green] [bold bright_cyan]{uncompressed_token_count}[/bold bright_cyan]"
+        f"[bold dark_sea_green4]Uncompressed Token Count:[/bold dark_sea_green4] [orchid]{uncompressed_token_count}[/orchid]"
     )
 
     console.print(
-        f"\n[bold bright_yellow]compressed.output.txt[/bold bright_yellow] & [bold bright_blue]uncompressed.output.txt[/bold bright_blue] have been created in the working directory.\n"
+        f"\n[bold bright_white]`compressed.output.txt`[/bold bright_white] & [bold bright_white]`uncompressed.output.txt`[/bold bright_white] have been created in `./output`.\n"
     )
 
     if enable_clipboard:
         pyperclip.copy(uncompressed_text)
         console.print(
-            f"[bright_white]The contents of [bold bright_blue]{output_file}[/bold bright_blue] have been copied to the clipboard.[/bright_white]\n"
+            f"[bright_yellow]The contents of [bold bright_blue]{output_file}[/bold bright_blue] have been copied to the clipboard.[/bright_yellow]\n"
         )
 
 if __name__ == "__main__":

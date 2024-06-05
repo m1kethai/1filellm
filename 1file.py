@@ -666,8 +666,11 @@ def main():
         f"\n[bold bright_green]You entered:[/bold bright_green] [bold bright_yellow]{input_path}[/bold bright_yellow]"
     )
 
-    output_file = "uncompressed.output.txt"
-    urls_list_file = "processed_urls.txt"
+    output_dir = "output"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    output_file = os.path.join(output_dir, "uncompressed.output.txt")
+    urls_list_file = os.path.join(output_dir, "processed_urls.txt")
 
     with Progress(
         TextColumn("[bold bright_blue]{task.description}"),

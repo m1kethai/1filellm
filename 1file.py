@@ -45,7 +45,7 @@ def set_filters():
         "rust":      { "ext_list": ['.rs'], "enabled": 1 },
         "markdown":  { "ext_list": ['.md'], "enabled": 1 },
         "sql":       { "ext_list": ['.sql'], "enabled": 1 },
-        "config":    { "ext_list": ['.env', '.env.example', '.example'], "enabled": 1 },
+        "config":    { "ext_list": ['.toml', '.yaml', '.cfg', '.env', '.env.example', '.example'], "enabled": 1 },
         "misc":      { "ext_list": ['.localhost', '.txt'], "enabled": 1 }
     }
     _allowed = []
@@ -64,7 +64,7 @@ def set_filters():
         re.compile(r'.*pip.*'),
         re.compile(r'.*_internal.*'),
         re.compile(r'\.env|\.venv|venv'),
-        re.compile(r'\.git|\.vscode|\.*cache.*|.*__pycache__.*|.*node_modules.*|.*dist.*|.*build.*|.*logs.*|.*tmp.*|.*temp')
+        re.compile(r'\.git*|\.vscode|\.*cache.*|.*__pycache__.*|.*node_modules.*|.*dist.*|.*build.*|.*logs.*|.*tmp.*|.*temp')
     ])
 
 def should_exclude(dir_name):

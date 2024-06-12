@@ -29,7 +29,9 @@ from rich.traceback import install
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 
 ### FLAGS ###
-enable_clipboard = False
+CALC_TOKENS = True
+ENABLE_CLIPBOARD = False
+### FLAGS ###
 
 console = Console()
 allowed_extensions = []
@@ -60,17 +62,41 @@ def set_filters():
     console.print("\n")
 
     # Define path exclude patterns
+    # exclude_paths.extend([
+    #     re.compile(r'.*pip.*'),
+    #     re.compile(r'.*_internal.*'),
+    #     re.compile(r'\.env|\.venv|venv'),
+    #     re.compile(r'\.git*|\.vscode|\.*cache.*|.*__pycache__.*|.*node_modules.*|.*dist.*|.*build.*|.*logs.*|_locales|.*tmp.*|.*temp')
+    # ])
+
     exclude_paths.extend([
-        re.compile(r'.*pip.*'),
-        re.compile(r'.*_internal.*'),
-        re.compile(r'\.env|\.venv|venv'),
-        re.compile(r'\.git*|\.vscode|\.*cache.*|.*__pycache__.*|.*node_modules.*|.*dist.*|.*build.*|.*logs.*|.*tmp.*|.*temp')
+        re.compile(r'.*(\.(env|venv|vscode|git.*)|cache|__pycache__|node_modules|dist|build|logs|_locales|tmp|temp(\.(tmp|temp))).*')
     ])
+    # Print compiled list of excluded paths
+    console.print("Excluded Patterns:", style="bold underline red")
+    for pattern in exclude_paths:
+        console.print(f"{pattern.pattern}", style="bold navajo_white1")
 
 def should_exclude(dir_name):
+    # DBG START >>>>>>>>>>>>>>>>>>>
+    pause_path = '_locales'
+    ### prompt user to confirm/proceed if `pause_path` is a substring of `dir_name`:
+    if pause_path in dir_name:
+        console.print(f"Pausing at: {dir_name}", style="bold red")
+        ### check if the current path matches any of the exclude patterns:
+        for pattern in exclude_paths:
+            if pattern.search(dir_name):
+                console.print(f"{dir_name} matches exclusion pattern: {pattern.pattern}", style="bold yellow")
+            else:
+                console.print(f"{dir_name} does not match exclusion pattern: {pattern.pattern}", style="bold green")
+        input("Press Enter to proceed...")
+    # <<<<<<<<<<<<<<<<<<<<< DBG END
+
     for pattern in exclude_paths:
         if pattern.search(dir_name):
+            console.print(f"Excluded: {dir_name} because of pattern: {pattern.pattern}", style="bold red")
             return True
+    console.print(f"Included: {dir_name} (no match found in exclude_paths)", style="bold green")
     return False
 
 def is_allowed_filetype(filename):
@@ -124,33 +150,33 @@ def process_ipynb_file(temp_file):
     )
     return python_code
 
-def process_github_repo_directory(url, output):
-    headers = github_auth_headers()
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    files = response.json()
+#? what is this even for?
+# def process_directory(url, output):
+#     headers = github_auth_headers()
+#     response = requests.get(url, headers=headers)
+#     response.raise_for_status()
+#     files = response.json()
 
-    for file in files:
-        if file["type"] == "file" and is_allowed_filetype(file["name"]):
-            console.print(f"Processing {file['path']}...", style="bold blue")
+#     for file in files:
+#         if file["type"] == "file" and is_allowed_filetype(file["name"]):
+#             console.print(f"Processing {file['path']}...", style="bold blue")
 
-            temp_file = f"temp_{file['name']}"
-            download_file(file["download_url"], temp_file)
+#             temp_file = f"temp_{file['name']}"
+#             download_file(file["download_url"], temp_file)
 
-            output.write(f"# {'-' * 10}\n")
-            output.write(f"# Filename: {file['path']}\n")
-            output.write(f"# {'-' * 10}\n\n")
+#             output.write(f"# {'-' * 10}\n")
+#             output.write(f"# Filename: {file['path']}\n")
+#             output.write(f"# {'-' * 10}\n\n")
 
-            if file["name"].endswith(".ipynb"):
-                output.write(process_ipynb_file(temp_file))
-            else:
-                with open(temp_file, "r", encoding="utf-8", errors="ignore") as f:
-                    output.write(f.read())
-            # output.write(f"\n")
-            os.remove(temp_file)
+#             if file["name"].endswith(".ipynb"):
+#                 output.write(process_ipynb_file(temp_file))
+#             else:
+#                 with open(temp_file, "r", encoding="utf-8", errors="ignore") as f:
+#                     output.write(f.read())
+#             os.remove(temp_file)
 
-        elif file["type"] == "dir":
-            process_github_repo_directory(file["url"], output)
+#         elif file["type"] == "dir":
+#             process_directory(file["url"], output)
 
 def process_local_dir_files(root, files, output):
     for file in files:
@@ -192,6 +218,9 @@ def process_local_directory(local_path, output):
                         process_local_dir_files(dir_path, os.listdir(dir_path), output)
 
 def process_github_repo(repo_url):
+    console.print(f"\n----- Processing as a GitHub repo -----\n", style="bold underline italic hot_pink3")
+    input("Press Enter to proceed...")
+
     headers = github_auth_headers()
     api_base_url = "https://api.github.com/repos/"
     repo_url_parts = repo_url.split("https://github.com/")[-1].split("/")
@@ -207,14 +236,14 @@ def process_github_repo(repo_url):
 
     repo_content = []
 
-    def process_github_repo_directory(url, repo_content):
+    def process_repo_dir(url, repo_content):
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         files = response.json()
 
         for file in files:
             if file["type"] == "file" and is_allowed_filetype(file["name"]):
-                console.print(f"Processing {file['path']}...", style="bold blue")
+                console.print(f"Processing {file['path']}...", style="bold aquamarine3")
 
                 temp_file = f"temp_{file['name']}"
                 download_file(file["download_url"], temp_file)
@@ -232,11 +261,11 @@ def process_github_repo(repo_url):
                 repo_content.append("\n\n")
                 os.remove(temp_file)
             elif file["type"] == "dir":
-                process_github_repo_directory(file["url"], repo_content)
+                process_repo_dir(file["url"], repo_content)
 
-    process_github_repo_directory(contents_url, repo_content)
+    process_repo_dir(contents_url, repo_content)
 
-    console.print("\nAll files processed.\n", style="bold green")
+    console.print("\nAll files processed!\n", style="bold underline green")
     return "\n".join(repo_content)
 
 def process_local_folder(local_path, output_file):
@@ -264,6 +293,7 @@ def process_arxiv_pdf(arxiv_abs_url, output_file):
 
     console.print("\nAll files processed.\n", style="bold green")
 
+#! UNUSED
 def extract_links(input_file, output_file):
     url_pattern = re.compile(
         r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
@@ -297,7 +327,7 @@ def fetch_youtube_transcript(url):
     except Exception as e:
         return f"Error: {str(e)}"
 
-def preprocess_text(input_file, output_file):
+def postprocess_text(input_file, output_file):
     with open(input_file, "r", encoding="utf-8") as input_file:
         input_text = input_file.read()
 
@@ -313,11 +343,13 @@ def preprocess_text(input_file, output_file):
     with open(output_file, "w", encoding="utf-8") as output_file:
         output_file.write(text.strip())
 
-def get_token_count(text):
+def get_token_counts(compressed, uncompressed):
     enc = tiktoken.get_encoding("cl100k_base")
     disallowed_special = enc.special_tokens_set - {""}
-    tokens = enc.encode(text, disallowed_special=disallowed_special)
-    return len(tokens)
+    for label, text in zip(["Compressed", "Uncompressed"], [compressed, uncompressed]):
+        tokens = enc.encode(text, disallowed_special=disallowed_special)
+        token_count = len(tokens)
+        console.print(f"[bold dark_orange3]{label} token count:[/bold dark_orange3] [orchid]{token_count}[/orchid]")
 
 def is_same_domain(base_url, new_url):
     return urlparse(base_url).netloc == urlparse(new_url).netloc
@@ -347,7 +379,7 @@ def process_pdf(url):
     os.remove("temp.pdf")
     return " ".join(text)
 
-def crawl_and_extract_text(
+def process_custom_url(
     base_url, output_file, urls_list_file, max_depth, include_pdfs, ignore_epubs
 ):
     visited_urls = set()
@@ -614,21 +646,20 @@ def process_github_issue(issue_url, output_file):
 
     return final_output
 
-#! WIP - automatically restructure the 1st-pass content and remove useless/irrelevant/repetitive text
-# def clean_and_restructure_content(content):
-#     # Remove navigation and footer content
-#     lines = content.split('\n')
-#     cleaned_lines = []
-#     for line in lines:
-#         if 'Navigation' in line or 'index' in line or 'previous' in line or 'next' in line or '©' in line or 'Options' in line:
-#             continue
-#         cleaned_lines.append(line)
+#! UNUSED
+def clean_up_output(content):
+    # WIP - automatically restructure the 1st-pass content and remove useless/irrelevant/repetitive text
+    # Remove navigation and footer content
+    lines = content.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        if 'Navigation' in line or 'index' in line or 'previous' in line or 'next' in line or '©' in line or 'Options' in line:
+            continue
+        cleaned_lines.append(line)
 
-#     # Join the cleaned lines
-#     cleaned_content = '\n'.join(cleaned_lines)
-#     return cleaned_content
-# # Clean and restructure the content
-# cleaned_content = clean_and_restructure_content(content)
+    # Join the cleaned lines
+    cleaned_content = '\n'.join(cleaned_lines)
+    return cleaned_content
 
 def main():
     intro_text = Text("Specify a local path or supported URL type\n", style="bright_white")
@@ -667,7 +698,7 @@ def main():
         )
 
     console.print(
-        f"\n[bold underline chartreuse1]Your Input: [/bold underline chartreuse1] [bold pale_turquoise1]{input_path}[/bold pale_turquoise1]"
+        f"\n[bold white]Your Input: [/bold white] [bold pale_turquoise1]\n{input_path}[/bold pale_turquoise1]"
     )
 
     output_dir = "output"
@@ -677,14 +708,15 @@ def main():
     urls_list_file = os.path.join(output_dir, "processed_urls.txt")
 
     with Progress(
-        TextColumn("[bold bright_blue]{task.description}"),
+        TextColumn("[italic yellow3]{task.description}", justify="right"),
+        TimeRemainingColumn(True, True),
         BarColumn(bar_width=None),
-        TimeRemainingColumn(),
         console=console,
     ) as progress:
-        task = progress.add_task("[bright_blue]Processing...", total=100)
+        task_main = progress.add_task("[bold italic underline bright_cyan]% Completed")
         set_filters()
 
+        task_processing = progress.add_task("Processing Data From Input")
         if "github.com" in input_path:
             if "/pull/" in input_path:
                 final_output = process_github_pull_request(input_path, output_file)
@@ -713,7 +745,7 @@ def main():
             elif "arxiv.org" in input_path:
                 process_arxiv_pdf(input_path, output_file)
             else:
-                final_output = crawl_and_extract_text(
+                final_output = process_custom_url(
                     input_path,
                     output_file,
                     urls_list_file,
@@ -726,34 +758,32 @@ def main():
         else:
             process_local_folder(input_path, output_file)
 
-        progress.update(task, advance=50)
-
+        progress.update(task_processing, completed=100)
+        progress.update(task_main, completed=75)
+        task_compress = progress.add_task("Compressing Output Text")
         compressed_output_file = os.path.join(output_dir, "compressed.output.txt")
-        preprocess_text(output_file, compressed_output_file)
+        progress.update(task_compress, completed=100)
+        task_postprocessing = progress.add_task("Post-processing Output")
+        postprocess_text(output_file, compressed_output_file)
+        progress.update(task_postprocessing, completed=100)
 
-        progress.update(task, advance=50)
+        if CALC_TOKENS:
+            progress.update(task_main, completed=95)
+            task_token_count = progress.add_task("Counting Tokens")
+            compressed_text = safe_file_read(compressed_output_file)
+            uncompressed_text = safe_file_read(output_file)
+            get_token_counts(compressed_text, uncompressed_text)
+            progress.update(task_token_count, advance=100)
 
-    compressed_text = safe_file_read(compressed_output_file)
-    compressed_token_count = get_token_count(compressed_text)
-    console.print(
-        f"\n[bold chartreuse1]Compressed Token Count:[/bold chartreuse1] [orchid]{compressed_token_count}[/orchid]"
-    )
+        progress.update(task_main, completed=100)
 
-    uncompressed_text = safe_file_read(output_file)
-    uncompressed_token_count = get_token_count(uncompressed_text)
-    console.print(
-        f"[bold dark_sea_green4]Uncompressed Token Count:[/bold dark_sea_green4] [orchid]{uncompressed_token_count}[/orchid]"
-    )
-
-    console.print(
-        f"\n[bold bright_white]`compressed.output.txt`[/bold bright_white] & [bold bright_white]`uncompressed.output.txt`[/bold bright_white] have been created in `./output`.\n"
-    )
-
-    if enable_clipboard:
-        pyperclip.copy(uncompressed_text)
         console.print(
-            f"[bright_yellow]The contents of [bold bright_blue]{output_file}[/bold bright_blue] have been copied to the clipboard.[/bright_yellow]\n"
+            f"\n[bold light_sky_blue1]`compressed.output.txt`[/bold light_sky_blue1] & [bold light_sky_blue1]`uncompressed.output.txt`[/bold light_sky_blue1] have been created in `./output`.\n"
         )
+
+        if ENABLE_CLIPBOARD:
+            pyperclip.copy(uncompressed_text | safe_file_read(output_file))
+            console.print(f"[bright_yellow]The contents of [bold bright_blue]{output_file}[/bold bright_blue] have been copied to the clipboard.[/bright_yellow]\n")
 
 if __name__ == "__main__":
     main()

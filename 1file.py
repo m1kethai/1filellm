@@ -59,23 +59,17 @@ def set_filters():
             _allowed = sorted(_allowed)
             allowed_extensions.extend(_allowed)
             console.print(f"{cat} => ({data['ext_list']})", style="aquamarine3")
-    console.print("\n")
+    # console.print("\n")
 
     # Define path exclude patterns
-    # exclude_paths.extend([
-    #     re.compile(r'.*pip.*'),
-    #     re.compile(r'.*_internal.*'),
-    #     re.compile(r'\.env|\.venv|venv'),
-    #     re.compile(r'\.git*|\.vscode|\.*cache.*|.*__pycache__.*|.*node_modules.*|.*dist.*|.*build.*|.*logs.*|_locales|.*tmp.*|.*temp')
-    # ])
-
     exclude_paths.extend([
         re.compile(r'.*(\.(env|venv|vscode|git.*)|cache|__pycache__|node_modules|dist|build|logs|_locales|tmp|temp(\.(tmp|temp))).*')
     ])
     # Print compiled list of excluded paths
-    console.print("Excluded Patterns:", style="bold underline red")
+    console.print("\nExcluded Patterns:", style="bold underline indian_red")
     for pattern in exclude_paths:
         console.print(f"{pattern.pattern}", style="bold navajo_white1")
+        console.print("\n")
 
 def should_exclude(dir_name):
     # DBG START >>>>>>>>>>>>>>>>>>>
@@ -94,7 +88,7 @@ def should_exclude(dir_name):
 
     for pattern in exclude_paths:
         if pattern.search(dir_name):
-            console.print(f"Excluded: {dir_name} because of pattern: {pattern.pattern}", style="bold red")
+            # console.print(f"Excluded: {dir_name} because of pattern: {pattern.pattern}", style="bold red")
             return True
     console.print(f"Included: {dir_name} (no match found in exclude_paths)", style="bold green")
     return False
@@ -662,44 +656,51 @@ def clean_up_output(content):
     return cleaned_content
 
 def main():
-    intro_text = Text("Specify a local path or supported URL type\n", style="bright_white")
-    src_options = [
-        ("▫️ Local Directory (full path)", "pale_green3"),
-        ("▫️ GitHub:", "sky_blue1"),
-        ("  ⤷ Repository URL", "pale_green3"),
-        ("  ⤷ Pull Request  [PR + repo contents]", "pale_green3"),
-        ("  ⤷ Issue         [Issue + repo contents]", "pale_green3"),
-        ("▫️ Other:", "sky_blue1"),
-        ("  ⤷ Documentation (main docs URL)", "pale_green3"),
-        ("  ⤷ YouTube [Video transcript]", "pale_green3"),
-        ("  ⤷ ArXiv Paper", "pale_green3"),
-        ("  ⤷ Sci-Hub Paper (DOI/PMID URL)", "pale_green3"),
-    ]
+    target_source = None
 
-    for src, color in src_options:
-        intro_text.append(f"\n{src}", style=color)
-
-    intro_panel = Panel(
-        intro_text,
-        expand=False,
-        border_style="bold",
-        title="[chartreuse1]Supported Inputs[/chartreuse1]",
-        title_align="center",
-        padding=(1, 1),
-    )
-    console.print(intro_panel, new_line_start=True)
-
-    if len(sys.argv) > 1:
-        input_path = sys.argv[1]
-    else:
-        input_path = Prompt.ask(
-            "\n[bold dodger_blue1]Enter path or URL[/bold dodger_blue1]",
+    if len(sys.argv) < 1:
+        intro_text = Text("Specify a local path or URL:\n", style="bright_yellow")
+        for src, color in [
+            ("▫️ Local Directory (full path)", "white"),
+            ("\n▫️ GitHub:", "sky_blue1"),
+            ("  ⤷ Repository URL", "white"),
+            ("  ⤷ Pull Request  [PR + repo contents]", "white"),
+            ("  ⤷ Issue         [Issue + repo contents]", "white"),
+            ("\n▫️ Other:", "sky_blue1"),
+            ("  ⤷ Documentation (main docs URL)", "white"),
+            ("  ⤷ YouTube [Video transcript]", "white"),
+            ("  ⤷ ArXiv Paper", "white"),
+            ("  ⤷ Sci-Hub Paper (DOI/PMID URL)", "white")]:
+            intro_text.append(f"\n{src}", style=color)
+        intro_panel = Panel(
+            intro_text,
+            expand=False,
+            border_style="bold",
+            title="[chartreuse1]Target Options[/chartreuse1]",
+            title_align="center",
+            padding=(1, 1),
+        )
+        console.print(intro_panel, new_line_start=True)
+        target_source = Prompt.ask(
+            "\n[bold italic dodger_blue1]Enter path or URL[/bold italic dodger_blue1]",
             console=console,
         )
+    else:
+        target_source = sys.argv[1]
 
-    console.print(
-        f"\n[bold white]Your Input: [/bold white] [bold pale_turquoise1]\n{input_path}[/bold pale_turquoise1]"
+    console.print(f"\n[bold spring_green2]Target: [/bold spring_green2]\n[cyan1]{target_source}[/cyan1]")
+    user_proceed = Prompt.ask(
+        "\n[bold spring_green2]Proceed?[/bold spring_green2]",
+        choices=["Y", "n"],
+        default="Y",
+        console=console,
     )
+
+    if user_proceed == "n":
+        console.print("[indian_red]BYE THEN 👋[/indian_red]")
+        sys.exit(0)
+
+    set_filters()
 
     output_dir = "output"
     if not os.path.exists(output_dir):
@@ -714,26 +715,25 @@ def main():
         console=console,
     ) as progress:
         task_main = progress.add_task("[bold italic underline bright_cyan]% Completed")
-        set_filters()
 
         task_processing = progress.add_task("Processing Data From Input")
-        if "github.com" in input_path:
-            if "/pull/" in input_path:
-                final_output = process_github_pull_request(input_path, output_file)
-            elif "/issues/" in input_path:
-                final_output = process_github_issue(input_path, output_file)
+        if "github.com" in target_source:
+            if "/pull/" in target_source:
+                final_output = process_github_pull_request(target_source, output_file)
+            elif "/issues/" in target_source:
+                final_output = process_github_issue(target_source, output_file)
             else:
-                repo_content = process_github_repo(input_path)
+                repo_content = process_github_repo(target_source)
                 with open(output_file, "w", encoding="utf-8") as file:
                     file.write(repo_content)
                 final_output = repo_content
-        elif urlparse(input_path).scheme in ["http", "https"]:
-            if "youtube.com" in input_path or "youtu.be" in input_path:
-                transcript = fetch_youtube_transcript(input_path)
+        elif urlparse(target_source).scheme in ["http", "https"]:
+            if "youtube.com" in target_source or "youtu.be" in target_source:
+                transcript = fetch_youtube_transcript(target_source)
                 if transcript:
                     with open(output_file, "w", encoding="utf-8") as output:
                         output.write(f"# YouTube Video Transcript\n")
-                        output.write(f"# URL: {input_path}\n\n")
+                        output.write(f"# URL: {target_source}\n\n")
                         output.write(transcript)
                     console.print(
                         "[bright_green]YouTube video transcript processed.[/bright_green]"
@@ -742,21 +742,21 @@ def main():
                     console.print(
                         "[bright_yellow]No transcript available for the YouTube video.[/bright_yellow]"
                     )
-            elif "arxiv.org" in input_path:
-                process_arxiv_pdf(input_path, output_file)
+            elif "arxiv.org" in target_source:
+                process_arxiv_pdf(target_source, output_file)
             else:
                 final_output = process_custom_url(
-                    input_path,
+                    target_source,
                     output_file,
                     urls_list_file,
                     max_depth=2,
                     include_pdfs=True,
                     ignore_epubs=True,
                 )
-        elif input_path.startswith("10.") and "/" in input_path or input_path.isdigit():
-            process_doi_or_pmid(input_path, output_file)
+        elif target_source.startswith("10.") and "/" in target_source or target_source.isdigit():
+            process_doi_or_pmid(target_source, output_file)
         else:
-            process_local_folder(input_path, output_file)
+            process_local_folder(target_source, output_file)
 
         progress.update(task_processing, completed=100)
         progress.update(task_main, completed=75)
